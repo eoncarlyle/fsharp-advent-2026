@@ -18,3 +18,75 @@ Using the LJ paramaters of `\frac{\epsilon}/{k_B} = 120 K` and `\sigma = 0.34 \m
 Argon seems appropriate.
 
 NPT algorithim shown on page 121
+
+# 2026.11.03
+
+Basic NPT-Ensemble Simulation 
+```
+PROGRAM mc_npt                    basic NPT ensemble simulation
+
+do icycl=1,ncycl                  perform ncycl MC cycles
+  ran=ranf()*(npart+1)+1
+  if (ran.le.npart) then
+    call mcmove                   perform particle displacement
+  else
+    call mcvol                    perform volume change
+  endif
+  if (mod(icycl,nsamp).eq.0)
++   call sample                   sample averages
+enddo
+end
+```
+
+```
+SUBROUTINE mcvol                          attempts to change
+                                          the volume
+call toterg(box,eno)                      total energy old conf.
+vo=box**3                                 determine old volume
+lnvn=log(vo)+(ranf()-0.5)*vmax            perform random walk in ln V
+vn=exp(lnvn)
+boxn=vn**(1/3)                            new box length
+do i=1,npart
+  x(i)=x(i)*boxn/box                      rescale center of mass
+enddo
+call toterg(boxn,enn)                     total energy new conf.
+arg=-beta*((enn-eno)+p*(vn-vo)
++ -(npart+1)*log(vn/vo)/beta)             appropriate weight function!
+if (ranf().gt.exp(arg)) then              acceptance rule (5.2.3)
+  do i=1,npart                            REJECTED
+    x(i)=x(i)*box/boxn                    restore the old positions
+  enddo
+endif
+return
+end
+```
+
+Basic metroplis displacement
+
+```
+SUBROUTINE mcmove                         attempts to displace a particle
+
+o=int(ranf()*npart)+1                     select a particle at random
+call ener(x(o),eno)                       energy old configuration
+xn=x(o)+(ranf()-0.5)*delx                 give particle random displacement
+call ener(xn,enn)                         energy new configuration
+if (ranf().lt.exp(-beta                   acceptance rule (3.2.1)
++   *(enn-eno)) x(o)=xn                   accepted: replace x(o) by xn
+return
+end
+```
+
+Two places where I'm thinking 'I know there must be a better way to math this out' is a) equal distribution of unique 
+pairs to sum over and b) periodic boundary condition distances
+
+I think there is probably a way to avoid the modulos, but I'm not positive.
+
+┌───────────────┬──────────────┐
+│    a          │    a         │
+│               │              │
+│               │              │
+│               │              │
+│            y  │           y  │
+│ x             │ x            │
+└───────────────└──────────────┘
+                                
