@@ -81,6 +81,9 @@ pairs to sum over and b) periodic boundary condition distances
 
 I think there is probably a way to avoid the modulos, but I'm not positive.
 
+Also, very annoying that the runtime does not provide a threadpool and I just have to trust it; I'd like to 
+deterministically prove that only a CPU number of threads are run.
+
 ┌───────────────┬──────────────┐
 │    a          │    a         │
 │               │              │
@@ -89,4 +92,18 @@ I think there is probably a way to avoid the modulos, but I'm not positive.
 │            y  │           y  │
 │ x             │ x            │
 └───────────────└──────────────┘
-                                
+
+Okay another note - it is frustrating that `**` is not unit aware. I also think that a written explanation of 
+`ThreadIndexBins` will make sense. If there were three molecules and two bins, the pairs would be 
+`[[(1, 2); (1, 3)]; [(2; 3)]`. For 4, `[[(1, 2); (1, 3); (1, 4)]; [(2, 3); (2, 4); (3, 4)]]]`.
+
+# 2026.11.10
+
+Measurements saved me:
+```fsharp
+let mistake = existingDimension * (rand - 0.5) * sc.CutoffRadius
+let correct = existingDimension + (rand - 0.5) * sc.CutoffRadius 
+```
+
+I had an epiphany while calculating the `translationalMcMove` that there is no reason to recalculate the energy: 
+when the positions are first created they should be created with the starting energy.
