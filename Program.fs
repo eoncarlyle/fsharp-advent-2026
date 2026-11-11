@@ -63,6 +63,7 @@ type SimulationConstants =
       Temperature: float<K>
       MolecularPotential: Potentials
       CutoffRadius: float<nm>
+      MaximumVolumeLogChange: float
       MultiThreading: MultithreadingConstants option }
 
 type SimulationStatistics() =
@@ -84,6 +85,7 @@ type SimulationStatistics() =
         if successful then
             (translationalMoveSuccesses <- translationalMoveSuccesses + 1)
 
+    // Not thread safe
     member this.getMaybePVolumeSuccess() =
         if volumeMoveAttempts > 0 then
             (float32 volumeMoveSuccesses) / (float32 volumeMoveAttempts) |> Some
@@ -167,20 +169,26 @@ let translationalMcMove
           Z = translate originalMolecule.Z randZ }
 
     energyPositions.Positions[selectedMolIdx] <- translatedMolecule
-    let e1 = energy boxLength sc energyPositions.Positions
+    let e' = energy boxLength sc energyPositions.Positions
 
     let randE = random.NextDouble()
 
-    if randE < Math.Exp(-1.0 * (e1 - e0) / (kB * sc.Temperature)) then
-        energyPositions.Energy <- e1
+    if randE < exp(-1.0 * (e' - e0) / (kB * sc.Temperature)) then
+        energyPositions.Energy <- e'
         true
     else
         energyPositions.Positions[selectedMolIdx] <- originalMolecule
         false
 
 
-let volumeMcMove (sc: SimulationConstants) (random: Random) (energyPositions: EnergyPositions) : float<nm> option =
-
+let volumeMcMove (sc: SimulationConstants) (random: Random) (boxLength: float<nm>) (energyPositions: EnergyPositions) : float<nm> option =
+    
+    let v0 = boxLength * boxLength * boxLength
+    let randlnV' = (random.NextDouble() - 0.5) * sc.MaximumVolumeLogChange * 2.0
+    let deltaV = 1.0<nm^3> * exp randlnV'
+    let v' = v0 + deltaV
+    
+    
     None
 
 let monteCarloLoop (random: Random) sc (stats: SimulationStatistics) (positions: Positions) =
@@ -199,7 +207,7 @@ let monteCarloLoop (random: Random) sc (stats: SimulationStatistics) (positions:
                 translationalMcMove rand boxLength sc random energyPositions
                 |> stats.updateTranslationalMoves
             else
-                let maybeNewBoxLength = volumeMcMove sc random energyPositions
+                let maybeNewBoxLength = volumeMcMove sc random boxLength energyPositions
 
                 match maybeNewBoxLength with
                 | Some(newBoxLength) ->
