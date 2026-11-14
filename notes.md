@@ -107,3 +107,17 @@ let correct = existingDimension + (rand - 0.5) * sc.CutoffRadius
 
 I had an epiphany while calculating the `translationalMcMove` that there is no reason to recalculate the energy: 
 when the positions are first created they should be created with the starting energy.
+
+# 2026.11.11
+
+For volume moves it makes sense to preallocate the buffer where the newly translated particles will be placed into. 
+Otherwise lots of needless allocation
+
+# 2026.11.12
+
+I can only imagine that doing the volume normalization multithreaded isn't any more efficient, but that will be 
+something to actually test
+ 
+# 2026.11.14
+
+Did not konw that scientific notation was supported by F#!
