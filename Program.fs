@@ -152,9 +152,9 @@ let energy (boxLength: float<nm>) (sc: SimulationConstants) (positions: Position
 
                             for idxA, idxB in bin do
                                 let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
-                                let pairwisePotential = sc.MolecularPotential.Pairwise displacement
-                                energy <- energy + pairwisePotential
-
+                                if (displacement <= sc.CutoffRadius) then
+                                    let pairwisePotential = sc.MolecularPotential.Pairwise displacement
+                                    energy <- energy + pairwisePotential 
                             energy)
                 }
 
