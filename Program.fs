@@ -115,7 +115,7 @@ type SimulationStatistics() =
         volumeMoveAttempts <- volumeMoveAttempts + 1
 
         match outcome with
-        | TranslationMoveOutcome.Accepted -> volumeMoveSuccesses <- volumeMoveAttempts + 1
+        | TranslationMoveOutcome.Accepted -> volumeMoveSuccesses <- volumeMoveSuccesses + 1
         | TranslationMoveOutcome.Rejected -> ()
 
     // Not thread safe
@@ -344,7 +344,7 @@ let main _ =
     let cores = 12
 
     let temperature = 300.0<K>
-    let cutoffRadius = 2.0<nm>
+    let cutoffRadius = 4.0<nm>
     let molecules = 125
     let initialBoxLength = 13.0<nm> //17.22<nm>
 
@@ -359,7 +359,7 @@ let main _ =
           Temperature = 300.0<K>
           MolecularPotential = argonLjPotential
           CutoffRadius = cutoffRadius
-          MaximumTranslationMovement = initialBoxLength / 2.0
+          MaximumTranslationMovement = 2.0<nm>
           MaximumVolumeLogChange = 0.0298
           MultiThreading = None }
 
