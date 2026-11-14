@@ -196,7 +196,7 @@ let translationalMcMove
             let message =
                 $"Illegal translation; boxLength:{boxLength}, randX: {randX}, randY: {randY}, randZ: {randZ}"
 
-            raise (Exception(message))
+            failwith message
         else if naiveTranslation > 0.0<nm> then
             (naiveTranslation % boxLength)
         else
@@ -353,14 +353,14 @@ let main _ =
 
     let sc: SimulationConstants =
         { Molecules = molecules
-          Cycle = 10000
+          Cycle = 1000
           InitialBoxLength = initialBoxLength
           Pressure = 0.000632420907<eV / nm^3>
           Temperature = 300.0<K>
           MolecularPotential = argonLjPotential
           CutoffRadius = cutoffRadius
           MaximumTranslationMovement = initialBoxLength / 2.0
-          MaximumVolumeLogChange = 0.0298 / 100.0
+          MaximumVolumeLogChange = 0.0298
           MultiThreading = None }
 
     let seed = 1001
