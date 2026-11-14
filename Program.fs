@@ -231,9 +231,9 @@ let volumeMcMove
     : VolumeMoveOutcome =
 
     let v0 = boxLength * boxLength * boxLength
-    let randlnV' = (random.NextDouble() - 0.5) * sc.MaximumVolumeLogChange * 2.0
-    let deltaV = 1.0<nm^3> * exp randlnV'
-    let v' = v0 + deltaV
+    let lnV' = log(v0/1.0<nm^3>) + (random.NextDouble() - 0.5) * sc.MaximumVolumeLogChange * 2.0
+    let v' = 1.0<nm^3> * exp lnV'
+    let deltaV = v' - v0
     let boxLength' = Math.Pow(v' / 1.0<nm^3>, 1.0 / 3.0) * 1.0<nm>
     // Would be interesting to see how expensive it is to reallocate entire new array each time
     let lengthRatio = boxLength' / boxLength
