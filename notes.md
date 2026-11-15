@@ -128,10 +128,27 @@ That is a lot of `translate` allocations that can probably be avoided?
 ![img.png](img.png)
 
 Attempting to optimise `this.Pairwise` because this is more interesting. Each run taken under profiler with sampling. 
-So admitedly not the best way to do this
+
+I saw two places in the CPU flamegraph that intrinsic `pown` was called. When I run these cold, off the bat they took 
+like 
 
 `d47e311`
 25, 26, 25
 
 `82c048d`
 34, 34, 34
+
+Okay, with a more established benchmark:
+
+Mean: 9.957s, standard deviation: 0.119s
+```
+let a = pown (σ / r) 6
+4.0 * ε * (a * a - a)
+```
+
+Mean: 10.024s, standard deviation: 0.081s
+```
+4.0 * ε * ((pown (σ / r) 12) - (pown (σ / r) 6))
+```
+
+So the distributions 
