@@ -1,6 +1,7 @@
 module BasicNpt
 
 open System
+open System.Collections
 open System.Threading.Tasks
 
 [<Measure>]
@@ -110,21 +111,21 @@ type SimulationStatistics() =
     let mutable volumeMoveSuccesses = 0
     let mutable translationalMoveAttempts = 0
     let mutable translationalMoveSuccesses = 0
-
-    member this.updateTranslationalMoves(outcome: TranslationMoveOutcome) =
+    
+    member this.updateVolumeMoves(outcome: VolumeMoveOutcome) =
         volumeMoveAttempts <- volumeMoveAttempts + 1
 
         match outcome with
-        | TranslationMoveOutcome.Accepted -> volumeMoveSuccesses <- volumeMoveSuccesses + 1
-        | TranslationMoveOutcome.Rejected -> ()
+        | VolumeMoveOutcome.Accepted(_) -> volumeMoveSuccesses <- volumeMoveSuccesses + 1
+        | VolumeMoveOutcome.Rejected -> ()
 
     // Not thread safe
-    member this.updateVolumeMoves(outcome: VolumeMoveOutcome) =
+    member this.updateTranslationalMoves(outcome: TranslationMoveOutcome) =
         translationalMoveAttempts <- translationalMoveAttempts + 1
 
         match outcome with
-        | VolumeMoveOutcome.Accepted(_) -> translationalMoveSuccesses <- translationalMoveSuccesses + 1
-        | VolumeMoveOutcome.Rejected -> ()
+        | TranslationMoveOutcome.Accepted -> translationalMoveSuccesses <- translationalMoveSuccesses + 1
+        | TranslationMoveOutcome.Rejected -> ()
 
     // Not thread safe
     member this.getMaybePVolumeSuccess() =
@@ -141,6 +142,9 @@ type SimulationStatistics() =
             None
 
 let energy (boxLength: float<nm>) (sc: SimulationConstants) (positions: Positions) =
+    
+    let diagnosticList = System.Collections.Generic.List<float<eV>>()
+    
     let pairwise =
         match sc.MultiThreading with
         | Some(mtc) ->
@@ -154,6 +158,8 @@ let energy (boxLength: float<nm>) (sc: SimulationConstants) (positions: Position
                                 let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
                                 if (displacement <= sc.CutoffRadius) then
                                     let pairwisePotential = sc.MolecularPotential.Pairwise displacement
+                                    // Here
+                                    diagnosticList.Add(pairwisePotential)
                                     energy <- energy + pairwisePotential 
                             energy)
                 }
@@ -166,6 +172,8 @@ let energy (boxLength: float<nm>) (sc: SimulationConstants) (positions: Position
                 for idxB in idxA + 1 .. positions.Length - 1 do
                     let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
                     let pairwisePotential = sc.MolecularPotential.Pairwise displacement
+                    // Here
+                    diagnosticList.Add(pairwisePotential)
                     energy <- energy + pairwisePotential
 
             energy
@@ -174,6 +182,9 @@ let energy (boxLength: float<nm>) (sc: SimulationConstants) (positions: Position
         (float positions.Length) / (boxLength * boxLength * boxLength)
         |> sc.MolecularPotential.Tail
 
+    if (pairwise + tailInteractions).ToString().Equals "NaN" then
+        failwith "checkpoint"
+        
     pairwise + tailInteractions
 
 let translationalMcMove
@@ -214,8 +225,10 @@ let translationalMcMove
     let u' = energy boxLength sc energyPositions.Positions
 
     let randE = random.NextDouble()
-
-    if randE < exp (-1.0 * (u' - u0) / (kB * sc.Temperature)) then
+    let power = (-1.0 * (u' - u0) / (kB * sc.Temperature))
+    
+    
+    if randE < exp power then
         energyPositions.Energy <- u'
         TranslationMoveOutcome.Accepted
     else
@@ -243,7 +256,7 @@ let volumeMcMove
     if boxLength' <= 2.0 * sc.CutoffRadius then
         failwith "Illegal state: box too small for sound periodic boundary condition"
 
-    energyPositions.VolumeMovePositionBuffer
+    energyPositions.Positions
     |> Array.iteri (fun idx p ->
         let p' =
             { X = p.X * lengthRatio
