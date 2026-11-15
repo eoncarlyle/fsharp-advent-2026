@@ -51,7 +51,7 @@ type NptBenchmarks() =
     [<Benchmark>]
     member this.MonteCarloLoop() =
         let positions = spacePositions this.Molecules initialBoxLength
-        simulation.monteCarloLoop (Random 1002) positions
+        simulation.monteCarloLoop (Random 1003) positions
 
 [<EntryPoint>]
 let main argv =

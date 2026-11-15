@@ -138,9 +138,6 @@ like
 `82c048d`
 34, 34, 34
 
-Okay, with a more established benchmark:
-
-Mean: 9.957s, standard deviation: 0.119s
 ```
 let a = pown (σ / r) 6
 4.0 * ε * (a * a - a)
@@ -151,4 +148,9 @@ Mean: 10.024s, standard deviation: 0.081s
 4.0 * ε * ((pown (σ / r) 12) - (pown (σ / r) 6))
 ```
 
-So the distributions 
+At seed of 1003, these are the properly benchmarked results
+New/fast: `Mean = 8.937 s, StdErr = 0.034 s `
+Old/slow: `Mean = 9.711 s, StdErr = 0.016 s 
+
+The next thing to do is to a) more conviently launch multiple `simulation.monteCarloLoop` calls across different 
+threads? I'd think that the place to put this is `SimulationStatistics`, but I don't know what form this would take
