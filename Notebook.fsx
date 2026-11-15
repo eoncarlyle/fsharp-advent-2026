@@ -45,3 +45,6 @@ let V0_n = v0 / 1.0<nm^3>
 //printfn "%O" (solutions "a" "2a = 10")    
 (solutions "lnv_max" $"{v'_n} = exp(ln({V0_n}) + lnv_max)").Evaled.ToString()
 // ~ 0.0298
+
+member this.Pairwise(r: float<nm>) : float<eV> =
+    4.0 * ε * ((pown (σ / r) 12) - (pown (σ / r) 6))

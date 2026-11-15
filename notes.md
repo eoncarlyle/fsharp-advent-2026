@@ -127,11 +127,11 @@ That is a lot of `translate` allocations that can probably be avoided?
 
 ![img.png](img.png)
 
+Attempting to optimise `this.Pairwise` because this is more interesting. Each run taken under profiler with sampling. 
+So admitedly not the best way to do this
 
+`d47e311`
 25, 26, 25
 
-```fsharp
-member this.Pairwise(r: float<nm>) : float<eV> =
-    let a = pown (σ / r) 6
-    4.0 * ε * (a * a - a)
-```
+`$commit`
+34, 34, 34

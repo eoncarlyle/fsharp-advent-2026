@@ -63,8 +63,7 @@ type Potentials =
 type LJPotentials(ε: float<eV>, σ: float<nm>, rCutoff: float<nm>) =
     interface Potentials with
         member this.Pairwise(r: float<nm>) : float<eV> =
-            let a = pown (σ / r) 6
-            4.0 * ε * (a * a - a)
+            4.0 * ε * ((pown (σ / r) 12) - (pown (σ / r) 6))
 
         member this.Tail(numberDensity: float<nm^-3>) : float<eV> =
             let a = (8.0 / 3.0) * Math.PI * numberDensity * ε * (σ * σ * σ)
