@@ -63,7 +63,8 @@ type Potentials =
 type LJPotentials(ε: float<eV>, σ: float<nm>, rCutoff: float<nm>) =
     interface Potentials with
         member this.Pairwise(r: float<nm>) : float<eV> =
-            (σ / r) |> fun m -> 4.0 * ε * ((pown m 12) - (pown m 6))
+            let a = pown (σ / r) 6
+            4.0 * ε * (a * a - a)
 
         member this.Tail(numberDensity: float<nm^-3>) : float<eV> =
             let a = (8.0 / 3.0) * Math.PI * numberDensity * ε * (σ * σ * σ)
@@ -141,190 +142,179 @@ type SimulationStatistics() =
         else
             None
 
-let energy (boxLength: float<nm>) (sc: SimulationConstants) (positions: Positions) =
-    
-    let diagnosticList = System.Collections.Generic.List<float<eV>>()
-    
-    let pairwise =
-        match sc.MultiThreading with
-        | Some(mtc) ->
-            let tasks =
-                seq {
-                    for bin in mtc.ThreadIndexBins do
-                        Task.Run(fun () ->
-                            let mutable energy = 0.0<eV>
+type NpTSimulation(sc: SimulationConstants) =
+    let energy (boxLength: float<nm>) (positions: Positions) =
+        let pairwise =
+            match sc.MultiThreading with
+            | Some(mtc) ->
+                let tasks =
+                    seq {
+                        for bin in mtc.ThreadIndexBins do
+                            Task.Run(fun () ->
+                                let mutable energy = 0.0<eV>
 
-                            for idxA, idxB in bin do
-                                let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
-                                if (displacement <= sc.CutoffRadius) then
-                                    let pairwisePotential = sc.MolecularPotential.Pairwise displacement
-                                    // Here
-                                    diagnosticList.Add(pairwisePotential)
-                                    energy <- energy + pairwisePotential 
-                            energy)
-                }
+                                for idxA, idxB in bin do
+                                    let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
+                                    if (displacement <= sc.CutoffRadius) then
+                                        let pairwisePotential = sc.MolecularPotential.Pairwise displacement
+                                        // Here
+                                        energy <- energy + pairwisePotential 
+                                energy)
+                    }
 
-            (Task.WhenAll tasks).GetAwaiter().GetResult() |> Array.sum
-        | None ->
-            let mutable energy = 0.0<eV>
+                (Task.WhenAll tasks).GetAwaiter().GetResult() |> Array.sum
+            | None ->
+                let mutable energy = 0.0<eV>
 
-            for idxA in 0 .. positions.Length - 1 do
-                for idxB in idxA + 1 .. positions.Length - 1 do
-                    let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
-                    let pairwisePotential = sc.MolecularPotential.Pairwise displacement
-                    // Here
-                    diagnosticList.Add(pairwisePotential)
-                    energy <- energy + pairwisePotential
+                for idxA in 0 .. positions.Length - 1 do
+                    for idxB in idxA + 1 .. positions.Length - 1 do
+                        let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
+                        let pairwisePotential = sc.MolecularPotential.Pairwise displacement
+                        energy <- energy + pairwisePotential
 
-            energy
+                energy
 
-    let tailInteractions =
-        (float positions.Length) / (boxLength * boxLength * boxLength)
-        |> sc.MolecularPotential.Tail
+        let tailInteractions =
+            (float positions.Length) / (boxLength * boxLength * boxLength)
+            |> sc.MolecularPotential.Tail
 
-    if (pairwise + tailInteractions).ToString().Equals "NaN" then
-        failwith "checkpoint"
-        
-    pairwise + tailInteractions
+        pairwise + tailInteractions
 
-let translationalMcMove
-    selectedMolIdx
-    (boxLength: float<nm>)
-    (sc: SimulationConstants)
-    (random: Random)
-    (energyPositions: EnergyPositions)
-    : TranslationMoveOutcome =
+    let translationalMcMove
+        selectedMolIdx
+        (boxLength: float<nm>)
+        (random: Random)
+        (energyPositions: EnergyPositions)
+        : TranslationMoveOutcome =
 
-    let randX = random.NextDouble()
-    let randY = random.NextDouble()
-    let randZ = random.NextDouble()
+        let randX = random.NextDouble()
+        let randY = random.NextDouble()
+        let randZ = random.NextDouble()
 
-    let translate (existingDimension: float<nm>) (rand: float) =
-        let naiveTranslation =
-            existingDimension + 2.0 * (rand - 0.5) * sc.MaximumTranslationMovement
+        let translate (existingDimension: float<nm>) (rand: float) =
+            let naiveTranslation =
+                existingDimension + 2.0 * (rand - 0.5) * sc.MaximumTranslationMovement
 
-        if (abs naiveTranslation) >= 2.0 * boxLength then
-            let message =
-                $"Illegal translation; boxLength:{boxLength}, randX: {randX}, randY: {randY}, randZ: {randZ}"
+            if (abs naiveTranslation) >= 2.0 * boxLength then
+                let message =
+                    $"Illegal translation; boxLength:{boxLength}, randX: {randX}, randY: {randY}, randZ: {randZ}"
 
-            failwith message
-        else if naiveTranslation > 0.0<nm> then
-            (naiveTranslation % boxLength)
-        else
-            boxLength + naiveTranslation % boxLength
-
-    let originalMolecule = energyPositions.Positions[selectedMolIdx]
-    let u0 = energyPositions.Energy
-
-    let translatedMolecule =
-        { X = translate originalMolecule.X randX
-          Y = translate originalMolecule.Y randY
-          Z = translate originalMolecule.Z randZ }
-
-    energyPositions.Positions[selectedMolIdx] <- translatedMolecule
-    let u' = energy boxLength sc energyPositions.Positions
-
-    let randE = random.NextDouble()
-    let power = (-1.0 * (u' - u0) / (kB * sc.Temperature))
-    
-    
-    if randE < exp power then
-        energyPositions.Energy <- u'
-        TranslationMoveOutcome.Accepted
-    else
-        energyPositions.Positions[selectedMolIdx] <- originalMolecule
-        TranslationMoveOutcome.Rejected
-
-
-let volumeMcMove
-    (sc: SimulationConstants)
-    (random: Random)
-    (boxLength: float<nm>)
-    (energyPositions: EnergyPositions)
-    : VolumeMoveOutcome =
-
-    let v0 = boxLength * boxLength * boxLength
-    let lnV' = log(v0/1.0<nm^3>) + (random.NextDouble() - 0.5) * sc.MaximumVolumeLogChange * 2.0
-    let v' = 1.0<nm^3> * exp lnV'
-    let deltaV = v' - v0
-    let boxLength' = Math.Pow(v' / 1.0<nm^3>, 1.0 / 3.0) * 1.0<nm>
-    // Would be interesting to see how expensive it is to reallocate entire new array each time
-    let lengthRatio = boxLength' / boxLength
-    // I suspect that multithreading is not actually performant but the binning should be handled in a pre-calculated
-    // field on `sc`
-
-    if boxLength' <= 2.0 * sc.CutoffRadius then
-        failwith "Illegal state: box too small for sound periodic boundary condition"
-
-    energyPositions.Positions
-    |> Array.iteri (fun idx p ->
-        let p' =
-            { X = p.X * lengthRatio
-              Y = p.Y * lengthRatio
-              Z = p.Z * lengthRatio }
-
-        energyPositions.VolumeMovePositionBuffer[idx] <- p')
-
-    let beta = 1.0 / (kB * sc.Temperature)
-    let u' = energy boxLength' sc energyPositions.VolumeMovePositionBuffer
-    let deltaU = energyPositions.Energy - u'
-
-    let power =
-        (float (sc.Molecules + 1)) * log (v' / v0)
-        - beta * deltaU
-        - beta * sc.Pressure * deltaV
-
-    let rand = random.NextDouble()
-
-    if rand > exp power then
-        VolumeMoveOutcome.Rejected
-    else
-        energyPositions.Positions <- energyPositions.VolumeMovePositionBuffer
-        energyPositions.Energy <- u'
-        VolumeMoveOutcome.Accepted boxLength'
-
-let displayProgress cycle boxLength (stats: SimulationStatistics) =
-    Console.WriteLine($"MC cycle: {cycle}")
-    Console.WriteLine($"Box Length: {boxLength}")
-    Console.WriteLine($"Translation Move success: {stats.getMaybePTranslationalSuccess ()}")
-    Console.WriteLine($"Volume Move success: {stats.getMaybePVolumeSuccess ()}")
-
-
-let monteCarloLoop (random: Random) sc (positions: Positions) =
-    let mutable boxLength = sc.InitialBoxLength
-    let stats = SimulationStatistics()
-
-    let energyPositions =
-        { Positions = positions
-          Energy = energy boxLength sc positions
-          VolumeMovePositionBuffer =
-            Array.map
-                (fun _ ->
-                    { X = 0.0<nm>
-                      Y = 0.0<nm>
-                      Z = 0.0<nm> })
-                positions }
-
-    for cycle in 1 .. sc.Cycle do
-        for step in 0 .. positions.Length do
-            // Double check this
-            let rand = random.Next(0, positions.Length + 1)
-
-            if rand < positions.Length then
-                translationalMcMove rand boxLength sc random energyPositions
-                |> stats.updateTranslationalMoves
+                failwith message
+            else if naiveTranslation > 0.0<nm> then
+                (naiveTranslation % boxLength)
             else
-                let outcome = volumeMcMove sc random boxLength energyPositions
-                stats.updateVolumeMoves outcome
+                boxLength + naiveTranslation % boxLength
 
-                match outcome with
-                | VolumeMoveOutcome.Accepted newBoxLength -> boxLength <- newBoxLength
-                | _ -> ()
+        let originalMolecule = energyPositions.Positions[selectedMolIdx]
+        let u0 = energyPositions.Energy
 
-        if cycle % 100 = 0 then
-            displayProgress cycle boxLength stats
+        let translatedMolecule =
+            { X = translate originalMolecule.X randX
+              Y = translate originalMolecule.Y randY
+              Z = translate originalMolecule.Z randZ }
 
-    (boxLength, stats)
+        energyPositions.Positions[selectedMolIdx] <- translatedMolecule
+        let u' = energy boxLength energyPositions.Positions
+
+        let randE = random.NextDouble()
+        let power = (-1.0 * (u' - u0) / (kB * sc.Temperature))
+        
+        
+        if randE < exp power then
+            energyPositions.Energy <- u'
+            TranslationMoveOutcome.Accepted
+        else
+            energyPositions.Positions[selectedMolIdx] <- originalMolecule
+            TranslationMoveOutcome.Rejected
+
+
+    let volumeMcMove
+        (random: Random)
+        (boxLength: float<nm>)
+        (energyPositions: EnergyPositions)
+        : VolumeMoveOutcome =
+
+        let v0 = boxLength * boxLength * boxLength
+        let lnV' = log(v0/1.0<nm^3>) + (random.NextDouble() - 0.5) * sc.MaximumVolumeLogChange * 2.0
+        let v' = 1.0<nm^3> * exp lnV'
+        let deltaV = v' - v0
+        let boxLength' = Math.Pow(v' / 1.0<nm^3>, 1.0 / 3.0) * 1.0<nm>
+        // Would be interesting to see how expensive it is to reallocate entire new array each time
+        let lengthRatio = boxLength' / boxLength
+        // I suspect that multithreading is not actually performant but the binning should be handled in a pre-calculated
+        // field on `sc`
+
+        if boxLength' <= 2.0 * sc.CutoffRadius then
+            failwith "Illegal state: box too small for sound periodic boundary condition"
+
+        energyPositions.Positions
+        |> Array.iteri (fun idx p ->
+            let p' =
+                { X = p.X * lengthRatio
+                  Y = p.Y * lengthRatio
+                  Z = p.Z * lengthRatio }
+
+            energyPositions.VolumeMovePositionBuffer[idx] <- p')
+
+        let beta = 1.0 / (kB * sc.Temperature)
+        let u' = energy boxLength' energyPositions.VolumeMovePositionBuffer
+        let deltaU = energyPositions.Energy - u'
+
+        let power =
+            (float (sc.Molecules + 1)) * log (v' / v0)
+            - beta * deltaU
+            - beta * sc.Pressure * deltaV
+
+        let rand = random.NextDouble()
+
+        if rand > exp power then
+            VolumeMoveOutcome.Rejected
+        else
+            energyPositions.Positions <- energyPositions.VolumeMovePositionBuffer
+            energyPositions.Energy <- u'
+            VolumeMoveOutcome.Accepted boxLength'
+
+    let displayProgress cycle boxLength (stats: SimulationStatistics) =
+        Console.WriteLine($"MC cycle: {cycle}")
+        Console.WriteLine($"Box Length: {boxLength}")
+        Console.WriteLine($"Translation Move success: {stats.getMaybePTranslationalSuccess ()}")
+        Console.WriteLine($"Volume Move success: {stats.getMaybePVolumeSuccess ()}")
+
+    member this.monteCarloLoop (random: Random) (positions: Positions) =
+        let mutable boxLength = sc.InitialBoxLength
+        let stats = SimulationStatistics()
+
+        let energyPositions =
+            { Positions = positions
+              Energy = energy boxLength positions
+              VolumeMovePositionBuffer =
+                Array.map
+                    (fun _ ->
+                        { X = 0.0<nm>
+                          Y = 0.0<nm>
+                          Z = 0.0<nm> })
+                    positions }
+
+        for cycle in 1 .. sc.Cycle do
+            for step in 0 .. positions.Length do
+                // Double check this
+                let rand = random.Next(0, positions.Length + 1)
+
+                if rand < positions.Length then
+                    translationalMcMove rand boxLength random energyPositions
+                    |> stats.updateTranslationalMoves
+                else
+                    let outcome = volumeMcMove random boxLength energyPositions
+                    stats.updateVolumeMoves outcome
+
+                    match outcome with
+                    | VolumeMoveOutcome.Accepted newBoxLength -> boxLength <- newBoxLength
+                    | _ -> ()
+
+            if cycle % 100 = 0 then
+                displayProgress cycle boxLength stats
+
+        (boxLength, stats)
 
 let spacePositions (molecules: int) (boxLength: float<nm>) =
     let count = Math.Cbrt molecules |> ceil |> int
@@ -351,13 +341,12 @@ let getThreadIndexBins (positions: Positions) (cores: int) =
     |> Seq.toArray
 
 
-
 [<EntryPoint>]
 let main _ =
     let cores = 12
 
     let temperature = 300.0<K>
-    let cutoffRadius = 4.0<nm>
+    let cutoffRadius = 3.0<nm>
     let molecules = 125
     let initialBoxLength = 13.0<nm> //17.22<nm>
 
@@ -376,11 +365,12 @@ let main _ =
           MaximumVolumeLogChange = 0.0298
           MultiThreading = None }
 
-    let seed = 1001
+    let seed = 1002
     let random = Random(seed)
 
-
+    let simulation = NpTSimulation sc
+    
     let (boxLength, stats) =
-        spacePositions molecules initialBoxLength |> monteCarloLoop random sc
+        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop random
 
     0

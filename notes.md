@@ -121,3 +121,17 @@ something to actually test
 # 2026.11.14
 
 Did not konw that scientific notation was supported by F#!
+Remark on `e037264` 
+
+That is a lot of `translate` allocations that can probably be avoided?
+
+![img.png](img.png)
+
+
+25, 26, 25
+
+```fsharp
+member this.Pairwise(r: float<nm>) : float<eV> =
+    let a = pown (σ / r) 6
+    4.0 * ε * (a * a - a)
+```
