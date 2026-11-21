@@ -1,7 +1,6 @@
 module BasicNpt
 
 open System
-open System.Collections
 open System.IO
 open System.Threading.Tasks
 
@@ -28,7 +27,7 @@ module conversions =
     let jPerEV = 1.602_176_634e-19<J / eV>
     let nmPerM = 1e9<nm / m>
 
-    let p1atm (pressure: float<Pa>) : float<eV / nm^3> =
+    let pressureConversion (pressure: float<Pa>) : float<eV / nm^3> =
         pressure / jPerEV / (nmPerM * nmPerM * nmPerM)
 
 let kB: float<eV / K> = 8.617333262<eV / K> * (pown 10.0 -5)
@@ -104,7 +103,8 @@ type SimulationConstants =
       MaximumTranslationMovement: float<nm>
       MaximumVolumeLogChange: float
       MultiThreading: MultithreadingConstants option
-      StatisticsEvaluationCycles: int }
+      StatisticsEvaluationInterval: int
+      FullStatisticsEvaluationCycles: int }
 
 type VolumeMoveOutcome =
     | Accepted of newBoxLength: float<nm>
@@ -280,7 +280,7 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
         let deltaU = energyPositions.Energy - u'
 
         let power =
-            (float (sc.Molecules + 1)) * log (v' / v0)
+            (float sc.Molecules) * log (v' / v0)
             - beta * deltaU
             - beta * sc.Pressure * deltaV
 
@@ -308,7 +308,7 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
         let truncatedTimeseries =
             stats.getBoxLengthTimeseries ()
             |> Array.rev
-            |> Array.truncate sc.StatisticsEvaluationCycles
+            |> Array.truncate sc.FullStatisticsEvaluationCycles
 
         let mu = Array.average truncatedTimeseries
         let sigma = standardDeviation truncatedTimeseries
@@ -358,7 +358,7 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
 
             stats.updateBoxLengthTimeseries boxLength
 
-            if cycle % 10 = 0 then
+            if cycle % sc.StatisticsEvaluationInterval = 0 then
                 displayProgress cycle boxLength stats
 
         finalStatistics stats
@@ -395,10 +395,12 @@ let main _ =
     let cores = 12
 
     let temperature = 300.0<K>
-    let cutoffRadius = 3.0<nm>
-    let molecules = 200
-    let cycles = 1000
-    let initialBoxLength = 13.0<nm> //17.22<nm>
+    let uncovertedPressure = 101325.0<J / m^3>
+    let pressure = conversions.pressureConversion uncovertedPressure
+    let cutoffRadius = 0.34<nm> * 2.5
+    let molecules = 150
+    let cycles = 2_000
+    let initialBoxLength = 13.0<nm>
 
     let argonLjPotential =
         LJPotentials(120.0 * temperature * kB, 0.34<nm>, cutoffRadius)
@@ -408,13 +410,14 @@ let main _ =
           Cycles = cycles
           InitialBoxLength = initialBoxLength
           Pressure = 0.000632420907<eV / nm^3>
-          Temperature = 300.0<K>
+          Temperature = temperature
           MolecularPotential = argonLjPotential
           CutoffRadius = cutoffRadius
           MaximumTranslationMovement = 1.5<nm>
           MaximumVolumeLogChange = 0.0298
           MultiThreading = None
-          StatisticsEvaluationCycles = cycles / 2 }
+          StatisticsEvaluationInterval = 100
+          FullStatisticsEvaluationCycles = cycles / 2 }
 
     let logDirecotry = DirectoryInfo("/Users/iain/code/fsharp-advent-2026/logs")
 
@@ -422,7 +425,7 @@ let main _ =
         seq {
             for randomSeed in 1000..1011 do
                 Task.Run(fun () ->
-                    let simulation = NpTSimulation(sc, "N200_300K_1atm", randomSeed, logDirecotry)
+                    let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirecotry)
 
                     let (_, stats) =
                         spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
