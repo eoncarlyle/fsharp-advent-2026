@@ -176,7 +176,6 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
 
                                     if (displacement <= sc.CutoffRadius) then
                                         let pairwisePotential = sc.MolecularPotential.Pairwise displacement
-                                        // Here
                                         energy <- energy + pairwisePotential
 
                                 energy)
@@ -187,10 +186,12 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
                 let mutable energy = 0.0<eV>
 
                 for idxA in 0 .. positions.Length - 1 do
+                    // Bug is here - cutoff not respected
                     for idxB in idxA + 1 .. positions.Length - 1 do
                         let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
-                        let pairwisePotential = sc.MolecularPotential.Pairwise displacement
-                        energy <- energy + pairwisePotential
+                        if (displacement <= sc.CutoffRadius) then
+                            let pairwisePotential = sc.MolecularPotential.Pairwise displacement
+                            energy <- energy + pairwisePotential
 
                 energy
 
