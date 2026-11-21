@@ -2,6 +2,7 @@ module BasicNpt
 
 open System
 open System.Collections
+open System.IO
 open System.Threading.Tasks
 
 [<Measure>]
@@ -32,6 +33,10 @@ module conversions =
 
 let kB: float<eV / K> = 8.617333262<eV / K> * (pown 10.0 -5)
 
+let standardDeviation (xs: float<'a>[]) =
+    let mean = Array.average xs
+    let sumSqDiff = Array.sumBy (fun x -> (x - mean) * (x - mean)) xs
+    sqrt (sumSqDiff / float xs.Length)
 
 [<Struct>]
 type Position =
@@ -64,8 +69,8 @@ type LJPotentials(ε: float<eV>, σ: float<nm>, rCutoff: float<nm>) =
     interface Potentials with
         member this.Pairwise(r: float<nm>) : float<eV> =
             4.0 * ε * ((pown (σ / r) 12) - (pown (σ / r) 6))
-            //let a = pown (σ / r) 6
-            //4.0 * ε * (a * a - a)
+        //let a = pown (σ / r) 6
+        //4.0 * ε * (a * a - a)
 
         member this.Tail(numberDensity: float<nm^-3>) : float<eV> =
             let a = (8.0 / 3.0) * Math.PI * numberDensity * ε * (σ * σ * σ)
@@ -90,7 +95,7 @@ type MultithreadingConstants with
 [<Struct>]
 type SimulationConstants =
     { Molecules: int
-      Cycle: int
+      Cycles: int
       InitialBoxLength: float<nm>
       Pressure: float<eV / nm^3>
       Temperature: float<K>
@@ -98,7 +103,8 @@ type SimulationConstants =
       CutoffRadius: float<nm>
       MaximumTranslationMovement: float<nm>
       MaximumVolumeLogChange: float
-      MultiThreading: MultithreadingConstants option }
+      MultiThreading: MultithreadingConstants option
+      StatisticsEvaluationCycles: int }
 
 type VolumeMoveOutcome =
     | Accepted of newBoxLength: float<nm>
@@ -108,12 +114,14 @@ type TranslationMoveOutcome =
     | Accepted
     | Rejected
 
-type SimulationStatistics() =
+type SimulationStatistics(cycles: int) =
     let mutable volumeMoveAttempts = 0
     let mutable volumeMoveSuccesses = 0
     let mutable translationalMoveAttempts = 0
     let mutable translationalMoveSuccesses = 0
-    
+    let boxLengthTimeseries = [| for _ in 1..cycles -> 0.0<nm> |]
+    let mutable timeseriesCursor = 0
+
     member this.updateVolumeMoves(outcome: VolumeMoveOutcome) =
         volumeMoveAttempts <- volumeMoveAttempts + 1
 
@@ -143,7 +151,16 @@ type SimulationStatistics() =
         else
             None
 
-type NpTSimulation(sc: SimulationConstants) =
+    member this.getBoxLengthTimeseries() = boxLengthTimeseries
+
+    member this.updateBoxLengthTimeseries(boxLength: float<nm>) =
+        boxLengthTimeseries[timeseriesCursor] <- boxLength
+        timeseriesCursor <- timeseriesCursor + 1
+
+type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, randomSeed: int, logDirectory: DirectoryInfo)
+    =
+    let random = Random(randomSeed)
+
     let energy (boxLength: float<nm>) (positions: Positions) =
         let pairwise =
             match sc.MultiThreading with
@@ -156,10 +173,12 @@ type NpTSimulation(sc: SimulationConstants) =
 
                                 for idxA, idxB in bin do
                                     let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
+
                                     if (displacement <= sc.CutoffRadius) then
                                         let pairwisePotential = sc.MolecularPotential.Pairwise displacement
                                         // Here
-                                        energy <- energy + pairwisePotential 
+                                        energy <- energy + pairwisePotential
+
                                 energy)
                     }
 
@@ -184,7 +203,6 @@ type NpTSimulation(sc: SimulationConstants) =
     let translationalMcMove
         selectedMolIdx
         (boxLength: float<nm>)
-        (random: Random)
         (energyPositions: EnergyPositions)
         : TranslationMoveOutcome =
 
@@ -219,8 +237,8 @@ type NpTSimulation(sc: SimulationConstants) =
 
         let randE = random.NextDouble()
         let power = (-1.0 * (u' - u0) / (kB * sc.Temperature))
-        
-        
+
+
         if randE < exp power then
             energyPositions.Energy <- u'
             TranslationMoveOutcome.Accepted
@@ -229,14 +247,14 @@ type NpTSimulation(sc: SimulationConstants) =
             TranslationMoveOutcome.Rejected
 
 
-    let volumeMcMove
-        (random: Random)
-        (boxLength: float<nm>)
-        (energyPositions: EnergyPositions)
-        : VolumeMoveOutcome =
+    let volumeMcMove (boxLength: float<nm>) (energyPositions: EnergyPositions) : VolumeMoveOutcome =
 
         let v0 = boxLength * boxLength * boxLength
-        let lnV' = log(v0/1.0<nm^3>) + (random.NextDouble() - 0.5) * sc.MaximumVolumeLogChange * 2.0
+
+        let lnV' =
+            log (v0 / 1.0<nm^3>)
+            + (random.NextDouble() - 0.5) * sc.MaximumVolumeLogChange * 2.0
+
         let v' = 1.0<nm^3> * exp lnV'
         let deltaV = v' - v0
         let boxLength' = Math.Pow(v' / 1.0<nm^3>, 1.0 / 3.0) * 1.0<nm>
@@ -275,15 +293,41 @@ type NpTSimulation(sc: SimulationConstants) =
             energyPositions.Energy <- u'
             VolumeMoveOutcome.Accepted boxLength'
 
-    let displayProgress cycle boxLength (stats: SimulationStatistics) =
-        Console.WriteLine($"MC cycle: {cycle}")
-        Console.WriteLine($"Box Length: {boxLength}")
-        Console.WriteLine($"Translation Move success: {stats.getMaybePTranslationalSuccess ()}")
-        Console.WriteLine($"Volume Move success: {stats.getMaybePVolumeSuccess ()}")
+    let logFileName =
+        Path.Combine(logDirectory.FullName, $"{simulationGroupLabel}-{randomSeed}.log")
 
-    member this.monteCarloLoop (random: Random) (positions: Positions) =
+    let writeLog (line: String) =
+        File.AppendAllText(logFileName, line + "\n")
+
+    let displayProgress cycle boxLength (stats: SimulationStatistics) =
+        let ptra = stats.getMaybePTranslationalSuccess () |> Option.get
+        let pvol = stats.getMaybePVolumeSuccess () |> Option.get
+        writeLog $"{cycle} | {boxLength} | {ptra} | {pvol}"
+
+    let finalStatistics (stats: SimulationStatistics) =
+        let truncatedTimeseries =
+            stats.getBoxLengthTimeseries ()
+            |> Array.rev
+            |> Array.truncate sc.StatisticsEvaluationCycles
+
+        let mu = Array.average truncatedTimeseries
+        let sigma = standardDeviation truncatedTimeseries
+        let pTraAcc = stats.getMaybePTranslationalSuccess () |> Option.get
+        let pVolAcc = stats.getMaybePVolumeSuccess () |> Option.get
+
+        writeLog (
+            $"Final Statistics: Box Length Mean={mu}, Box Length Stdev={sigma}, PTraAcc={pTraAcc}, PVolAcc={pVolAcc}"
+        )
+
+    member this.monteCarloLoop(positions: Positions) =
         let mutable boxLength = sc.InitialBoxLength
-        let stats = SimulationStatistics()
+        let stats = SimulationStatistics(sc.Cycles)
+
+        if File.Exists logFileName then
+            failwith $"Labeled simulation job {logFileName} already exists"
+
+        writeLog ("Simulation constants")
+        writeLog (sc.ToString())
 
         let energyPositions =
             { Positions = positions
@@ -296,26 +340,30 @@ type NpTSimulation(sc: SimulationConstants) =
                           Z = 0.0<nm> })
                     positions }
 
-        for cycle in 1 .. sc.Cycle do
+        for cycle in 1 .. sc.Cycles do
             for step in 0 .. positions.Length do
                 // Double check this
                 let rand = random.Next(0, positions.Length + 1)
 
                 if rand < positions.Length then
-                    translationalMcMove rand boxLength random energyPositions
+                    translationalMcMove rand boxLength energyPositions
                     |> stats.updateTranslationalMoves
                 else
-                    let outcome = volumeMcMove random boxLength energyPositions
+                    let outcome = volumeMcMove boxLength energyPositions
                     stats.updateVolumeMoves outcome
 
                     match outcome with
                     | VolumeMoveOutcome.Accepted newBoxLength -> boxLength <- newBoxLength
                     | _ -> ()
 
-            if cycle % 100 = 0 then
+            stats.updateBoxLengthTimeseries boxLength
+
+            if cycle % 10 = 0 then
                 displayProgress cycle boxLength stats
 
+        finalStatistics stats
         (boxLength, stats)
+
 
 let spacePositions (molecules: int) (boxLength: float<nm>) =
     let count = Math.Cbrt molecules |> ceil |> int
@@ -348,7 +396,8 @@ let main _ =
 
     let temperature = 300.0<K>
     let cutoffRadius = 3.0<nm>
-    let molecules = 125
+    let molecules = 200
+    let cycles = 1000
     let initialBoxLength = 13.0<nm> //17.22<nm>
 
     let argonLjPotential =
@@ -356,22 +405,32 @@ let main _ =
 
     let sc: SimulationConstants =
         { Molecules = molecules
-          Cycle = 1000
+          Cycles = cycles
           InitialBoxLength = initialBoxLength
           Pressure = 0.000632420907<eV / nm^3>
           Temperature = 300.0<K>
           MolecularPotential = argonLjPotential
           CutoffRadius = cutoffRadius
-          MaximumTranslationMovement = 2.0<nm>
+          MaximumTranslationMovement = 1.5<nm>
           MaximumVolumeLogChange = 0.0298
-          MultiThreading = None }
+          MultiThreading = None
+          StatisticsEvaluationCycles = cycles / 2 }
 
-    let seed = 1002
-    let random = Random(seed)
+    let logDirecotry = DirectoryInfo("/Users/iain/code/fsharp-advent-2026/logs")
 
-    let simulation = NpTSimulation sc
-    
-    let (boxLength, stats) =
-        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop random
+    let simulations =
+        seq {
+            for randomSeed in 1000..1011 do
+                Task.Run(fun () ->
+                    let simulation = NpTSimulation(sc, "N200_300K_1atm", randomSeed, logDirecotry)
+
+                    let (_, stats) =
+                        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
+
+                    ())
+        }
+
+    let results = (Task.WhenAll simulations).GetAwaiter().GetResult()
+
 
     0

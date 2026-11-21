@@ -27,12 +27,11 @@ let argonEpsilon = 120
 
 let argonSigma = 0.34<nm>
 
-let count = 125
+let count = 200
 
 let v0 = ((float count) * kB * 300.0<K>) / p1atm
 
 let l0 = System.Math.Cbrt(v0 / 1.0<nm^3>) * 1.0<nm>
-
 
 open AngouriMath.FSharp.Functions
 
