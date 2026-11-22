@@ -77,6 +77,7 @@ type LJPotentials(ε: float<eV>, σ: float<nm>, rCutoff: float<nm>) =
             //let b = (σ/rCutoff) |> fun ratio -> (1.0/3.0)*(pown ratio 9) - (pown ratio 3)
             let b = (1.0 / 3.0) * (pown (σ / rCutoff) 9) - (pown (σ / rCutoff) 3)
             a * b
+            //0.0<eV>
 
 [<Struct>]
 type MultithreadingConstants =
@@ -192,7 +193,6 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
                         if (displacement <= sc.CutoffRadius) then
                             let pairwisePotential = sc.MolecularPotential.Pairwise displacement
                             energy <- energy + pairwisePotential
-
                 energy
 
         let tailInteractions =
@@ -410,12 +410,12 @@ let main _ =
         { Molecules = molecules
           Cycles = cycles
           InitialBoxLength = initialBoxLength
-          Pressure = 0.000632420907<eV / nm^3>
+          Pressure = pressure
           Temperature = temperature
           MolecularPotential = argonLjPotential
           CutoffRadius = cutoffRadius
-          MaximumTranslationMovement = 1.5<nm>
-          MaximumVolumeLogChange = 0.0298
+          MaximumTranslationMovement = 0.7<nm>
+          MaximumVolumeLogChange = 0.0298 * 6.0
           MultiThreading = None
           StatisticsEvaluationInterval = 100
           FullStatisticsEvaluationCycles = cycles / 2 }
@@ -424,7 +424,7 @@ let main _ =
 
     let simulations =
         seq {
-            for randomSeed in 1000..1011 do
+            for randomSeed in 2000..2011 do
                 Task.Run(fun () ->
                     let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirecotry)
 
