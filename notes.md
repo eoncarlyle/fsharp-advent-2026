@@ -154,3 +154,28 @@ Old/slow: `Mean = 9.711 s, StdErr = 0.016 s
 
 The next thing to do is to a) more conviently launch multiple `simulation.monteCarloLoop` calls across different 
 threads? I'd think that the place to put this is `SimulationStatistics`, but I don't know what form this would take
+
+# 2026.11.22
+
+`c7855d6` and `f48cdcd` tested the simulation with and without tail correction respectively. There is no difference in 
+the (way too high) final box length.
+
+So two problems - the existing box length issue and the tail correction is never called. But if it literally does not 
+impact the box length if the tail correction isn't called, then clearly there is some issue with the pairwise potential.
+
+Am I not accounting correctly for something really basic like forgetting to count all pairs? It would make sense to do 
+pairwise energy the naive/unoptimised/obviously correct way first.
+
+```
+➜   grep -hoE 'Mean=[^,]+' * | sort -u
+Mean=26.17925991752719
+Mean=34.967065375678374
+Mean=42.492491458571465
+Mean=42.77739929873855
+Mean=43.66653325913573
+Mean=44.00921010552093
+Mean=47.58311068642399
+Mean=49.81561916482975
+Mean=51.87762131231645
+Mean=57.84137009566896
+```
