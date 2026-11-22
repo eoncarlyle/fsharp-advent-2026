@@ -76,8 +76,8 @@ type LJPotentials(ε: float<eV>, σ: float<nm>, rCutoff: float<nm>) =
             // I'd be curious as to if this would make any difference:
             //let b = (σ/rCutoff) |> fun ratio -> (1.0/3.0)*(pown ratio 9) - (pown ratio 3)
             let b = (1.0 / 3.0) * (pown (σ / rCutoff) 9) - (pown (σ / rCutoff) 3)
-            a * b
-            //0.0<eV>
+            //a * b
+            0.0<eV>
 
 [<Struct>]
 type MultithreadingConstants =
@@ -426,7 +426,7 @@ let main _ =
         seq {
             for randomSeed in 2000..2011 do
                 Task.Run(fun () ->
-                    let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirecotry)
+                    let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}_0tail", randomSeed, logDirecotry)
 
                     let (_, stats) =
                         spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
