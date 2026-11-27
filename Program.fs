@@ -76,8 +76,8 @@ type LJPotentials(ε: float<eV>, σ: float<nm>, rCutoff: float<nm>) =
             // I'd be curious as to if this would make any difference:
             //let b = (σ/rCutoff) |> fun ratio -> (1.0/3.0)*(pown ratio 9) - (pown ratio 3)
             let b = (1.0 / 3.0) * (pown (σ / rCutoff) 9) - (pown (σ / rCutoff) 3)
-            //a * b
-            0.0<eV>
+            a * b
+            //0.0<eV>
 
 [<Struct>]
 type MultithreadingConstants =
@@ -399,8 +399,8 @@ let main _ =
     let uncovertedPressure = 101325.0<J / m^3>
     let pressure = conversions.pressureConversion uncovertedPressure
     let cutoffRadius = 0.34<nm> * 2.5
-    let molecules = 150
-    let cycles = 2_000
+    let molecules = 200
+    let cycles = 1000
     let initialBoxLength = 13.0<nm>
 
     let argonLjPotential =
@@ -422,19 +422,21 @@ let main _ =
 
     let logDirecotry = DirectoryInfo("/Users/iain/code/fsharp-advent-2026/logs")
 
-    let simulations =
-        seq {
-            for randomSeed in 2000..2011 do
-                Task.Run(fun () ->
-                    let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}_0tail", randomSeed, logDirecotry)
+    let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}", 1000, logDirecotry)
 
-                    let (_, stats) =
-                        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
+    let (_, stats) =
+        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
+    //let simulations =
+    //    seq {
+    //        for randomSeed in 3000..3011 do
+    //            Task.Run(fun () ->
+    //                let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirecotry)
 
-                    ())
-        }
+    //                let (_, stats) =
+    //                    spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
 
-    let results = (Task.WhenAll simulations).GetAwaiter().GetResult()
-
+    //                ())
+    //    }
+    // let results = (Task.WhenAll simulations).GetAwaiter().GetResult()
 
     0

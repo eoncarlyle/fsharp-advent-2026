@@ -27,7 +27,7 @@ let argonEpsilon = 120
 
 let argonSigma = 0.34<nm>
 
-let count = 150
+let count = 200
 
 let v0 = ((float count) * kB * 300.0<K>) / p1atm
 
