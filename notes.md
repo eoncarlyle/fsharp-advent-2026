@@ -203,6 +203,7 @@ dotnet run -c Release --project Benchmarks
 ```
 
 Not any faster with changes - not likely to be literally slower though
+`841468f`
 ```
 | Method         | molecules | cycles | Mean    | Error    | StdDev   | Median  | Allocated |
 |--------------- |---------- |------- |--------:|---------:|---------:|--------:|----------:|
