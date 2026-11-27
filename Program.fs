@@ -66,18 +66,18 @@ type Potentials =
 
 type LJPotentials(ε: float<eV>, σ: float<nm>, rCutoff: float<nm>) =
     interface Potentials with
-        member this.Pairwise(r: float<nm>) : float<eV> =
+        member this.Pairwise r : float<eV> =
             4.0 * ε * ((pown (σ / r) 12) - (pown (σ / r) 6))
         //let a = pown (σ / r) 6
         //4.0 * ε * (a * a - a)
 
-        member this.Tail(numberDensity: float<nm^-3>) : float<eV> =
+        member this.Tail numberDensity : float<eV> =
             let a = (8.0 / 3.0) * Math.PI * numberDensity * ε * (σ * σ * σ)
             // I'd be curious as to if this would make any difference:
             //let b = (σ/rCutoff) |> fun ratio -> (1.0/3.0)*(pown ratio 9) - (pown ratio 3)
             let b = (1.0 / 3.0) * (pown (σ / rCutoff) 9) - (pown (σ / rCutoff) 3)
             a * b
-            //0.0<eV>
+        //0.0<eV>
 
 [<Struct>]
 type MultithreadingConstants =
@@ -158,11 +158,13 @@ type SimulationStatistics(cycles: int) =
         boxLengthTimeseries[timeseriesCursor] <- boxLength
         timeseriesCursor <- timeseriesCursor + 1
 
-type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, randomSeed: int, logDirectory: DirectoryInfo)
-    =
+type NpTSimulation
+    (sc: SimulationConstants, simulationGroupLabel: string option, randomSeed: int, logDirectory: DirectoryInfo) =
     let random = Random(randomSeed)
 
     let energy (boxLength: float<nm>) (positions: Positions) =
+        let molecules = positions.Length
+
         let pairwise =
             match sc.MultiThreading with
             | Some(mtc) ->
@@ -190,16 +192,18 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
                     // Bug is here - cutoff not respected
                     for idxB in idxA + 1 .. positions.Length - 1 do
                         let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
+
                         if (displacement <= sc.CutoffRadius) then
                             let pairwisePotential = sc.MolecularPotential.Pairwise displacement
                             energy <- energy + pairwisePotential
+
                 energy
 
         let tailInteractions =
             (float positions.Length) / (boxLength * boxLength * boxLength)
             |> sc.MolecularPotential.Tail
 
-        pairwise + tailInteractions
+        pairwise + (float molecules) * tailInteractions
 
     let translationalMcMove
         selectedMolIdx
@@ -213,17 +217,12 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
 
         let translate (existingDimension: float<nm>) (rand: float) =
             let naiveTranslation =
-                existingDimension + 2.0 * (rand - 0.5) * sc.MaximumTranslationMovement
+                (existingDimension + 2.0 * (rand - 0.5) * sc.MaximumTranslationMovement) % boxLength
 
-            if (abs naiveTranslation) >= 2.0 * boxLength then
-                let message =
-                    $"Illegal translation; boxLength:{boxLength}, randX: {randX}, randY: {randY}, randZ: {randZ}"
-
-                failwith message
-            else if naiveTranslation > 0.0<nm> then
-                (naiveTranslation % boxLength)
+            if naiveTranslation < 0.0<nm> then
+                boxLength - naiveTranslation
             else
-                boxLength + naiveTranslation % boxLength
+                naiveTranslation
 
         let originalMolecule = energyPositions.Positions[selectedMolIdx]
         let u0 = energyPositions.Energy
@@ -278,7 +277,7 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
 
         let beta = 1.0 / (kB * sc.Temperature)
         let u' = energy boxLength' energyPositions.VolumeMovePositionBuffer
-        let deltaU = energyPositions.Energy - u'
+        let deltaU = u' - energyPositions.Energy
 
         let power =
             (float sc.Molecules) * log (v' / v0)
@@ -294,11 +293,13 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
             energyPositions.Energy <- u'
             VolumeMoveOutcome.Accepted boxLength'
 
-    let logFileName =
-        Path.Combine(logDirectory.FullName, $"{simulationGroupLabel}-{randomSeed}.log")
+    let maybeLogFileName =
+        simulationGroupLabel
+        |> Option.map (fun label -> Path.Combine(logDirectory.FullName, $"{label}-{randomSeed}.log"))
 
     let writeLog (line: String) =
-        File.AppendAllText(logFileName, line + "\n")
+        maybeLogFileName
+        |> Option.iter (fun logFileName -> File.AppendAllText(logFileName, line + "\n"))
 
     let displayProgress cycle boxLength (stats: SimulationStatistics) =
         let ptra = stats.getMaybePTranslationalSuccess () |> Option.get
@@ -320,12 +321,14 @@ type NpTSimulation(sc: SimulationConstants, simulationGroupLabel: string, random
             $"Final Statistics: Box Length Mean={mu}, Box Length Stdev={sigma}, PTraAcc={pTraAcc}, PVolAcc={pVolAcc}"
         )
 
+    member this.externalLog line = writeLog line
+
     member this.monteCarloLoop(positions: Positions) =
         let mutable boxLength = sc.InitialBoxLength
         let stats = SimulationStatistics(sc.Cycles)
 
-        if File.Exists logFileName then
-            failwith $"Labeled simulation job {logFileName} already exists"
+        if maybeLogFileName |> Option.filter File.Exists |> Option.isSome then
+            failwith $"Labeled simulation job {maybeLogFileName} already exists"
 
         writeLog ("Simulation constants")
         writeLog (sc.ToString())
@@ -400,7 +403,7 @@ let main _ =
     let pressure = conversions.pressureConversion uncovertedPressure
     let cutoffRadius = 0.34<nm> * 2.5
     let molecules = 200
-    let cycles = 1000
+    let cycles = 20000
     let initialBoxLength = 13.0<nm>
 
     let argonLjPotential =
@@ -422,21 +425,21 @@ let main _ =
 
     let logDirecotry = DirectoryInfo("/Users/iain/code/fsharp-advent-2026/logs")
 
-    let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}", 1000, logDirecotry)
+    let simulations =
+        seq {
+            for randomSeed in 1000..1011 do
+                Task.Run(fun () ->
+                    let simulation =
+                        NpTSimulation(sc, Some $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirecotry)
 
-    let (_, stats) =
-        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
-    //let simulations =
-    //    seq {
-    //        for randomSeed in 3000..3011 do
-    //            Task.Run(fun () ->
-    //                let simulation = NpTSimulation(sc, $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirecotry)
+                    try
+                        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop |> ignore
+                    with e ->
+                        Console.WriteLine $"Caught the following in seed {randomSeed}: {e}"
+                        simulation.externalLog $"Simulation prematurely exited with: {e}"
+                        ())
+        }
 
-    //                let (_, stats) =
-    //                    spacePositions molecules initialBoxLength |> simulation.monteCarloLoop
-
-    //                ())
-    //    }
-    // let results = (Task.WhenAll simulations).GetAwaiter().GetResult()
+    let results = (Task.WhenAll simulations).GetAwaiter().GetResult()
 
     0

@@ -38,7 +38,6 @@ open AngouriMath.FSharp.Functions
 // Normalised maximum volume difference from V0_n after change 
 let v'_n: float = pown ((l0/1.0<nm>)*1.01) 3
 
-
 let V0_n = v0 / 1.0<nm^3>
 
 //printfn "%O" (solutions "a" "2a = 10")    
