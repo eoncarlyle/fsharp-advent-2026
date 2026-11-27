@@ -194,3 +194,10 @@ benchmarking is done with
 dotnet run -c Release --project Benchmarks
 ```
 
+`c0da5a7` benchmarks
+```
+| Method         | molecules | cycles | Mean    | Error    | StdDev   | Median  | Allocated |
+|--------------- |---------- |------- |--------:|---------:|---------:|--------:|----------:|
+| MonteCarloLoop | 125       | 1000   | 6.279 s | 0.2968 s | 0.8611 s | 5.868 s | 149.73 KB |
+
+```
