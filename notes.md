@@ -201,3 +201,10 @@ dotnet run -c Release --project Benchmarks
 | MonteCarloLoop | 125       | 1000   | 6.279 s | 0.2968 s | 0.8611 s | 5.868 s | 149.73 KB |
 
 ```
+
+Not any faster with changes - not likely to be literally slower though
+```
+| Method         | molecules | cycles | Mean    | Error    | StdDev   | Median  | Allocated |
+|--------------- |---------- |------- |--------:|---------:|---------:|--------:|----------:|
+| MonteCarloLoop | 125       | 1000   | 6.406 s | 0.3082 s | 0.8942 s | 5.977 s | 149.73 KB |
+```

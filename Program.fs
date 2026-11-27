@@ -2,6 +2,7 @@ module BasicNpt
 
 open System
 open System.IO
+open System.Linq
 open System.Threading.Tasks
 
 [<Measure>]
@@ -164,7 +165,8 @@ type NpTSimulation
 
     let energy (boxLength: float<nm>) (positions: Positions) =
         let molecules = positions.Length
-
+        let moleculesF = float positions.Length
+        
         let pairwise =
             match sc.MultiThreading with
             | Some(mtc) ->
@@ -188,9 +190,9 @@ type NpTSimulation
             | None ->
                 let mutable energy = 0.0<eV>
 
-                for idxA in 0 .. positions.Length - 1 do
+                for idxA in 0 .. molecules - 1 do
                     // Bug is here - cutoff not respected
-                    for idxB in idxA + 1 .. positions.Length - 1 do
+                    for idxB in idxA + 1 .. molecules - 1 do
                         let displacement = positions[idxA].pbcDisplacement (positions[idxB], boxLength)
 
                         if (displacement <= sc.CutoffRadius) then
@@ -200,10 +202,10 @@ type NpTSimulation
                 energy
 
         let tailInteractions =
-            (float positions.Length) / (boxLength * boxLength * boxLength)
+            moleculesF / (boxLength * boxLength * boxLength)
             |> sc.MolecularPotential.Tail
 
-        pairwise + (float molecules) * tailInteractions
+        pairwise + moleculesF * tailInteractions
 
     let translationalMcMove
         selectedMolIdx
@@ -395,7 +397,7 @@ let getThreadIndexBins (positions: Positions) (cores: int) =
 
 
 [<EntryPoint>]
-let main _ =
+let main args =
     let cores = 12
 
     let temperature = 300.0<K>
@@ -423,23 +425,33 @@ let main _ =
           StatisticsEvaluationInterval = 100
           FullStatisticsEvaluationCycles = cycles / 2 }
 
-    let logDirecotry = DirectoryInfo("/Users/iain/code/fsharp-advent-2026/logs")
+    let logDirectory = DirectoryInfo("/Users/iain/code/fsharp-advent-2026/logs")
 
-    let simulations =
-        seq {
-            for randomSeed in 1000..1011 do
-                Task.Run(fun () ->
-                    let simulation =
-                        NpTSimulation(sc, Some $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirecotry)
+    let multiple = true
+    
+    if args.Contains "multiple" then
+        let simulations =
+            seq {
+                for randomSeed in 1000..1011 do
+                    Task.Run(fun () ->
+                        let simulation =
+                            NpTSimulation(sc, Some $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirectory)
 
-                    try
-                        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop |> ignore
-                    with e ->
-                        Console.WriteLine $"Caught the following in seed {randomSeed}: {e}"
-                        simulation.externalLog $"Simulation prematurely exited with: {e}"
-                        ())
-        }
+                        try
+                            spacePositions molecules initialBoxLength |> simulation.monteCarloLoop |> ignore
+                        with e ->
+                            Console.WriteLine $"Caught the following in seed {randomSeed}: {e}"
+                            simulation.externalLog $"Simulation prematurely exited with: {e}"
+                            ())
+            }
 
-    let results = (Task.WhenAll simulations).GetAwaiter().GetResult()
+        let results = (Task.WhenAll simulations).GetAwaiter().GetResult() 
+        ()
+    else
+        let randomSeed = 1000
+        let simulation =
+            NpTSimulation(sc, Some $"N{molecules}_{temperature}_{uncovertedPressure}", randomSeed, logDirectory)
+
+        spacePositions molecules initialBoxLength |> simulation.monteCarloLoop |> ignore 
 
     0
